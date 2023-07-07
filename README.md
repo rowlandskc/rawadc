@@ -1,2 +1,2 @@
 # rawadc
-Read RAW ADC snapshots
+Read raw ADC snapshots

@@ -13,10 +13,6 @@ from scipy.signal import get_window
 import allantools as allan 
 import sys
 from scipy.optimize import curve_fit
-from array import array
-import matplotlib.ticker
-from scipy.signal import detrend
-import pandas as pd
 
 
 def progressbar(it, prefix="", size=60, out=sys.stdout):
@@ -57,7 +53,6 @@ def progressbar(it, prefix="", size=60, out=sys.stdout):
     '''
     count = len(it)
     def show(j):
-        print(count)
         x = int(size*j/count) ### dividing by 0 here
         print("{}[{}{}] {}/{}".format(prefix, u"#"*x, "."*(size-x), j, count), end='\r', file=out, flush=True)
     show(0)
@@ -65,7 +60,7 @@ def progressbar(it, prefix="", size=60, out=sys.stdout):
         yield item
         show(i+1)
     print(f"Done {prefix}\n", flush=True, file=out)
-
+    
 def objective(x, amp, stability, phase, vertical):
     '''
     Fits the quantized sine wave with a fit and error from parameters
@@ -78,7 +73,6 @@ def objective(x, amp, stability, phase, vertical):
         x/800MHz converts from integer steps from 1 to 2048 into units of time (1.25 ns)
     '''
     return np.abs(amp) * np.cos(2*np.pi*10*stability*x/800 + phase) + vertical
- 
     
 class raw_acq:
     '''
@@ -153,7 +147,94 @@ class raw_acq:
         raw_acq.end_time = end_time
         print("Loaded raw acq HDF5 file ... \r")
        
-#used to be diagnotics() here
+    def diagostics(self):
+        '''
+        
+        Input: n/a
+        Output: A list of information about the acq data acquisition as well as a graph that displays the time between
+        adc captures. 
+        
+        You can call this by either calling the object.diagnostics(), or by setting the last argument of raw_acq() to true. 
+        
+        '''
+        timestamp = np.hstack(self.hdf5['timestamp'][:])
+        ctime = np.hstack(timestamp['ctime'])
+        fpga_counts = np.hstack(timestamp['fpga_count'])
+        adc_input = np.hstack(self.hdf5['adc_input'][:])
+        #print("input: "+ str(len(adc_input)))
+        crate = np.hstack(self.hdf5['crate'][:])
+        #print("Crate: "+str(len(crate)))
+        slot = np.hstack(self.hdf5['slot'][:])
+        #print("slot: "+str(len(slot)))
+        #print("length fpga: "+str(len(fpga_counts)))
+        counter=0
+        goodfpga=[]
+        for val in range(len(slot)-1):
+            counter+=1
+            if crate[counter]==0 and slot[counter]==15 and adc_input[counter]==12:
+                goodfpga.append(fpga_counts[counter])
+        
+        #print(goodfpga)
+        
+        print("raw ACQ diagnostics ... \n")
+         #print(f"archive_version: {self.hdf5.attrs['archive_version'].decode()}")
+         #print(f"collection_server: {self.hdf5.attrs['collection_server'].decode()}")
+         #print(f"git_version_tag: {self.hdf5.attrs['git_version_tag'].decode()}")
+        print(f"file_name: {self.hdf5.attrs['file_name']}")
+         #print(f"data_type: {self.hdf5.attrs['data_type'].decode()}")
+         #print(f"system_user: {self.hdf5.attrs['system_user'].decode()}")
+        print(f"rawadc_version: {self.hdf5.attrs['rawadc_version']}")
+        # print(f"Timestamping_warning: {self.hdf5.attrs['timestamping_warning'].decode()}")
+        print()
+ 
+        print(f"ctime Timestamp of first raw_adc frame: {raw_acq.start_time}")
+        print(f"ctime Timestamp of last raw_adc frame: {raw_acq.end_time}")
+        print()
+         
+        plt.figure(figsize=(15,3))
+        print(f"Time between raw_adc captures is either {self.time_between_adc_capture} seconds")
+        number_adc_captures_to_plot = 484
+    
+        #self.hdf5 = h5py.File(self.file,"r")
+        #timestamp = np.hstack(self.hdf5['timestamp'][:])
+        #ctime = np.hstack(timestamp['ctime'])
+        goodfpga_counts = np.hstack(goodfpga)
+         
+         
+        weeks = goodfpga_counts*2.56e-6/60/60/24/7
+        timeaxis = weeks
+        time_axis = "Weeks"
+        if weeks.max() < 5:
+            days = goodfpga_counts*2.56e-6/60/60/24
+            timeaxis = days
+            time_axis = "days"
+            if days.max() < 5:
+                hours = goodfpga_counts*2.56e-6/60
+                timeaxis = hours
+                time_axis = "minutes"
+                #if hours.max() < 2: 
+                     #seconds = fpga_counts*2.56e-6
+                     #timeaxis = seconds
+                     #time_axis = "seconds"
+        time_since_capture=[]
+        capcounter=0
+        for val in range(len(timeaxis)-2):
+            time_between=(timeaxis[capcounter+1]-timeaxis[capcounter])*60
+            capcounter+=1
+            time_since_capture.append(time_between)
+        
+        #print("time since capture: "+str(time_since_capture))
+        #time_since_capture=time_since_capture
+        print("good_fpga len: "+str(len(goodfpga)))
+        #print(fpga_counts)
+        #print("timeaxis: "+str(timeaxis))
+        print("len time_since_capture: "+str(len(time_since_capture)))
+        #plt.scatter(np.arange(number_adc_captures_to_plot)+1,self.fpga_counts_between_raw_adc_capture[:number_adc_captures_to_plot]*2.56e-6)
+        plt.scatter(timeaxis[:number_adc_captures_to_plot],time_since_capture[:number_adc_captures_to_plot])
+        plt.ylabel("time since last capture (s)")
+        plt.xlabel(time_axis)#rawadc capture number (first capture is #0)
+        plt.title("Time since last adc capture using fpga_counts")
+        #plt.savefig("time since last adc capture 400 points.pdf", format="pdf")
         
         
     class check_input:
@@ -199,35 +280,24 @@ class raw_acq:
             '''
             itc = single_inp.input_to_check
             input_number = itc[2]
-            #print(input_number)
-            crate_number = itc[0]
-           # print(crate_number)
-            slot_number = itc[1]
-            #print(slot_number)
-
-            index_used = np.logical_and(np.logical_and(raw_acq.crate==crate_number, raw_acq.slot==slot_number), raw_acq.adc_input==input_number)
-
-            single_inp.time_stamps = raw_acq.timestamp[index_used]
-            single_inp.time_streams = raw_acq.timestream[index_used]
-            #print(len(single_inp.time_streams))
-            #print(len(raw_acq.timestream))
-            #print(len(index_used))
+            crate_number = itc[1]
+            slot_number = itc[0]
             
-            #single_inp.time_stamps = raw_acq.timestamp[np.intersect1d(
-            #    np.where(
-            #        raw_acq.adc_input == input_number),
-            #    np.where(
-            #        raw_acq.crate == crate_number),
-            #    np.where(
-            #        raw_acq.slot == slot_number)
-            #)]
-            #single_inp.time_streams = raw_acq.timestream[np.intersect1d(
-            #    np.where(
-            #        raw_acq.adc_input == input_number),
-            #    np.where(
-            #        raw_acq.crate == crate_number),
-            #    np.where(
-            #        raw_acq.slot == slot_number))]
+            single_inp.time_stamps = raw_acq.timestamp[np.intersect1d(
+                np.where(
+                    raw_acq.adc_input == input_number),
+                np.where(
+                    raw_acq.crate == crate_number),
+                np.where(
+                    raw_acq.slot == slot_number)
+            )]
+            single_inp.time_streams = raw_acq.timestream[np.intersect1d(
+                np.where(
+                    raw_acq.adc_input == input_number),
+                np.where(
+                    raw_acq.crate == crate_number),
+                np.where(
+                    raw_acq.slot == slot_number))]
             input_id = {}
             input_id["crate"] = crate_number 
             input_id["slot"] = slot_number
@@ -266,7 +336,7 @@ class raw_acq:
             
             '''
             istream = single_inp.time_streams
-            window = get_window('blackmanharris',2048)#was 2048
+            window = get_window('blackmanharris',2048)
             ffted_data = np.fft.fft(istream*window, axis=1)
             single_inp.fft = ffted_data[:,:ffted_data.shape[1] // 2]
             single_inp.mag_fft = np.abs(ffted_data)[:,:ffted_data.shape[1] // 2]
@@ -312,9 +382,10 @@ class raw_acq:
             tenMHz_index = int(np.round(10/(400/1024)))
             angles = single_inp.angle_fft[:,tenMHz_index]
             single_inp.angles = angles
-            print(angles[0])
             angles = np.unwrap(angles - angles[0])
             single_inp.tau = angles/2/np.pi/10e6 # angle/nu; tau in seconds
+            
+            
             
         def plot_single_input_diagnostics(single_inp):
             '''
@@ -347,9 +418,9 @@ class raw_acq:
                 extent=[800, 400, single_inp.time_stamps['fpga_count'][-1], single_inp.time_stamps['fpga_count'][0]]
             )
             fig.show()
-
+        
         def get_curve_fit(single_input):
-            xlist = [val for val in range(0+1, (len(single_input.time_streams)+1))]#2049 before
+            xlist = [val for val in range(0+1, 2049)]
             #xlist = [(float(val)*(1.25e-9)) for val in x]
             amp = []
             amp_error = []
@@ -360,18 +431,13 @@ class raw_acq:
             vertical = []
             vertical_error = []
             phase_err = []
-            n_snapshots = single_input.time_streams.shape[0]
-            len_snapshot = single_input.time_streams.shape[1]
             
-            #print("num of snapshots " +str(n_snapshots)) 512
-            #print("length of snapshots "+str(len_snapshot)) 2048
             #change the names so they make sense phase_err -> tau_err
-            print("length of single_input.time_streams: " +str(len(single_input.time_streams)))
-            for i in range(len(single_input.time_streams)):#originally was 2048, changed to 512, but now attempting to make flexible
+            
+            for i in range(2048):
                 #get each timestream for fitting
                 ylist = single_input.time_streams[i]
-                #print(single_input.time_streams[i])
-                xlist = [val for val in range(0+1, len(ylist)+1)]
+                xlist = [val for val in range(0+1, len(xlist)+1)]
                 yerror = np.ones(len(xlist)) * 1/np.sqrt(12)
 
                 #fit the sine wave
@@ -420,8 +486,7 @@ class raw_acq:
             
             single_input.phase_unwrapped = np.unwrap(phase - phase[0])
             single_input.tau_shift = [(val/2/np.pi/(popt[1]*10e6)/1e-9) for val in single_input.phase_unwrapped]
-            print("single_input.phase_unwrapped length: "+ str(len(single_input.phase_unwrapped)))
-            for val in range(len(single_input.time_streams)): #was 2048 originally, kept getting out of range 512
+            for val in range(2048):
                 if single_input.phase_err[val] > 1e7:
                     print(val)
             #why 10e6 and 1.25e-9
@@ -429,14 +494,10 @@ class raw_acq:
 
         def get_single_curve_fit(single_input, i):
             #make a function that just does the curve fit and saves it to the object single_input
-            n_snapshots = single_input.time_streams.shape[0]
-            len_snapshot = single_input.time_streams.shape[1]
+
             #get the timestream plot ready
             ylist = single_input.time_streams[i]
-            #print("length of ylist: "+str(len(ylist)))
             xlist = [val for val in range(0+1, len(ylist)+1)]
-            #print(len(xlist))
-            
             yerror = np.ones(len(xlist)) * 1/np.sqrt(12)
             
             #print(single_input.phase_err[i])
@@ -450,235 +511,79 @@ class raw_acq:
             plt.plot(xlist, ylist)
             plt.plot(xline, yline)
             plt.title('Single input curve fit')
-            plt.savefig("6_26_23_single_input_curve_fit_maser_fix.pdf", format="pdf")
             #plt.legend()
             
             #save b parameter and d
             #get avg of d, then do curve fit again with a set d value
-            #save error to plot the b val with error bars 
+            #save error to plot the b val with error bars  
             
-            n_snapshots_array=np.arange(0, len(single_input.time_streams))
-            #print(n_snapshots_array)
             fig, ax = plt.subplots(figsize=(20,10))
             #ax.plot(xlist, tau_shift, '.')
-            #print("length of single_input.tau_shift: " +str(len(single_input.tau_shift)))
-            #print("size of single_inout.tau_shift: "+str(np.size(single_input.tau_shift)))
-            #print("type of tau shift: "+str(type(single_input.tau_shift)))
-            print("size of n_snapshots: "+str(np.size(n_snapshots)))
-            print("# of snapshots: "+str(n_snapshots))
-            #print("length of n_snapshots: " +str(len(n_snapshots)))
-            print("ype of snapshots: "+str(type(n_snapshots)))
-            tau_shift=np.array(single_input.tau_shift)
-            print("size of tau_shift: "+str(np.size(tau_shift)))
-            print("length of tau_shift: "+str(len(tau_shift)))
-            print("type tau_shift: "+str(type(tau_shift)))
-            print(tau_shift[1])
-            print("size of n_snapshots_array: "+str(np.size(n_snapshots_array)))
-            ax.errorbar(n_snapshots_array, tau_shift, yerr=single_input.tau_err, fmt=',', ecolor='orange')
+            ax.errorbar(xlist, single_input.tau_shift, yerr=single_input.tau_err, fmt=',', ecolor='orange')
             ax.set_title('Tau shift')
             ax.set_ylabel('$\Delta$ $\tau$ (ns)')
-            plt.savefig("6_26_23_tau_shift_calculated_maser_fix.pdf", format="pdf")
             
             fig, ax1 = plt.subplots(figsize=(20,10))
             #ax1.errorbar(xlist, single_input.freq_stability, yerr=single_input.freq_err, fmt='.', ecolor='orange')
-            ax1.plot(n_snapshots_array, single_input.freq_stability, '.')
+            ax1.plot(xlist, single_input.freq_stability, '.')
             ax1.set_title('Frequency Stability')
-            plt.savefig("6_26_23_frequency_stability_maser_fix.pdf", format="pdf")
             
             fig, ax2 = plt.subplots(figsize=(20,10))
             #ax2.errorbar(xlist, single_input.amp, yerr=single_input.amp_err, fmt='.', ecolor='orange')
-            ax2.plot(n_snapshots_array, single_input.amp, '.')
+            ax2.plot(xlist, single_input.amp, '.')
             ax2.set_title('Amplitude')
-            plt.savefig("6_26_23_amplitude_maser_fix.pdf", format="pdf")
-        
-        class check_iceboard:
-            """
-                Check adc rms of all inputs of an iceboard of a given crate and slot from a singel raw_acq file
-            """
-            def __init__(iceboard, crate, slot): #, time_slice):
-                '''
-                
-                
-                
-                '''
-                #iceboard.time_slice = time_slice
-                iceboard.crate = crate
-                iceboard.slot = slot
-                iceboard.full_acq_capture_diagnostic()
             
-            def full_acq_capture_diagnostic(iceboard): 
-                """
-                    reads all data from a single raw_acq file and computes rms and std and plots histgram of all the adc inputs
-                """
-                #if iceboard.time_slice: 
-                #    timeslice = iceboard.time_slice
-                ant_std = np.zeros(16)
-                ant_rms = np.zeros(16)
-                plt.figure(figsize=(15,8))
-                plt.suptitle(f"total adc_rms of (crate,slot){iceboard.crate}{iceboard.slot} between {raw_acq.start_time} and {raw_acq.end_time}")
-                #print("\n\n")
-                #print("(crate,slot,input),rms,log2std")
-                for i in range(16):
-                    inp0 = np.where(raw_acq.adc_input[:] == i)[0]
-                    ant0_data = raw_acq.timestream[:][inp0]
-                    ant0_data = ant0_data[:]
-                    #ant_rms[i] = np.sqrt(np.mean(ant0_data)**2)
-                    #ant_std[i] =  np.log2(np.std(ant0_data))
-                    #print(f"({check_crate},{check_slot},{i}),{ant_rms[i]:1.3f},{ant_std[i]:1.3f}")
-                    plt.subplot(4,4,i+1)
-                    hist, bin_edges = np.histogram(ant0_data, bins=256,  density=True)
-                    plt.plot(bin_edges[1:], hist)
-                    plt.title(f'input: {i}')
-                    plt.tight_layout()
-                plt.show()
                 
+            
     
-    def read_raw_adc_aro(rawfiles, verbose=1):
+    class check_iceboard:
         """
-        Read raw ADC data.
+            Check adc rms of all inputs of an iceboard of a given crate and slot from a singel raw_acq file
         """
-        adc_input_to_sma = np.array([12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6 ,7, 0, 1, 2, 3])
-        for rr, rf in enumerate(rawfiles):
-       
-            if verbose: print(rf)
-       
-            with h5py.File(rf, 'r') as handler:
-    
-                # Figure out the unique fpga frame numbers
-                timestamp = handler['timestamp'][:, 0]
-    
-                uniq_fpga_count, iuniq, itime = np.unique(timestamp['fpga_count'], return_index=True,
-                                                          return_inverse=True)
-                ctime = timestamp['ctime'][iuniq]
-                ntime = ctime.size
-               
-                # Load in the full timestream
-                timestream = handler['timestream'][:]
-           
-                # Repackage into an array that is nsample, ninput, ntime
-                npacket, nsample = timestream.shape
-                ninput=16
-               
-                sma = handler['adc_input'][:, 0]
-           
-                data = np.zeros((ninput, ntime, nsample), dtype=timestream.dtype)
-           
-                for jj, (tt, ii) in enumerate(zip(itime, sma)):
-           
-                    data[sma[ii], tt, :] = timestream[jj, :]
-    
-                if not rr:
-                    rawtime = ctime
-                    rawfpgacount = uniq_fpga_count.copy()
-                    rawdata = data
-    
-                else:
-                    rawtime = np.concatenate((rawtime, ctime))
-                    rawfpgacount = np.concatenate((rawfpgacount, uniq_fpga_count))
-                    rawdata = np.concatenate((rawdata, data), axis=1)
-    
-        return rawtime, rawfpgacount, rawdata
-    
-    #raw_adc = ['/home/cloyd/ARO_acq/data/20230413T135529Z_ARO/raw_acq/000000']
-    #rawtime, rawfpgacount, rawdata=read_aro_raw(raw_adc)
-    
-    def diagostics(self):
-        '''
+        def __init__(iceboard, crate, slot): #, time_slice):
+            '''
+            
+            
+            
+            '''
+            #iceboard.time_slice = time_slice
+            iceboard.crate = crate
+            iceboard.slot = slot
+            iceboard.full_acq_capture_diagnostic()
         
-        Input: n/a
-        Output: A list of information about the acq data acquisition as well as a graph that displays the time between
-        adc captures. 
-        
-        You can call this by either calling the object.diagnostics(), or by setting the last argument of raw_acq() to true. 
-        
-        '''
-        print("raw ACQ diagnostics ... \n")
-        print(f"archive_version: {self.hdf5.attrs['archive_version']}")#.decode()
-        print(f"collection_server: {self.hdf5.attrs['collection_server']}")#.decode()
-        print(f"git_version_tag: {self.hdf5.attrs['git_version_tag']}")#.decode()
-        print(f"file_name: {self.hdf5.attrs['file_name']}")
-        print(f"data_type: {self.hdf5.attrs['data_type']}")#.decode()
-        print(f"system_user: {self.hdf5.attrs['system_user']}")#.decode()
-        print(f"rawadc_version: {self.hdf5.attrs['rawadc_version']}")
-        print(f"Timestamping_warning: {self.hdf5.attrs['timestamping_warning']}")#.decode()
-        print()
+        def full_acq_capture_diagnostic(iceboard): 
+            """
+                reads all data from a single raw_acq file and computes rms and std and plots histgram of all the adc inputs
+            """
+            #if iceboard.time_slice: 
+            #    timeslice = iceboard.time_slice
+            ant_std = np.zeros(16)
+            ant_rms = np.zeros(16)
+            plt.figure(figsize=(15,8))
+            plt.suptitle(f"total adc_rms of (crate,slot){iceboard.crate}{iceboard.slot} between {raw_acq.start_time} and {raw_acq.end_time}")
+            #print("\n\n")
+            #print("(crate,slot,input),rms,log2std")
+            for i in range(16):
+                inp0 = np.where(raw_acq.adc_input[:] == i)[0]
+                ant0_data = raw_acq.timestream[:][inp0]
+                ant0_data = ant0_data[:]
+                #ant_rms[i] = np.sqrt(np.mean(ant0_data)**2)
+                #ant_std[i] =  np.log2(np.std(ant0_data))
+                #print(f"({check_crate},{check_slot},{i}),{ant_rms[i]:1.3f},{ant_std[i]:1.3f}")
+                plt.subplot(4,4,i+1)
+                hist, bin_edges = np.histogram(ant0_data, bins=256,  density=True)
+                plt.plot(bin_edges[1:], hist)
+                plt.title(f'input: {i}')
+                plt.tight_layout()
+            plt.show()
 
-        print(f"ctime Timestamp of first raw_adc frame: {raw_acq.start_time}")
-        print(f"ctime Timestamp of last raw_adc frame: {raw_acq.end_time}")
-        print()
-        
-        plt.figure(figsize=(15,3))
-        print(f"Time between raw_adc captures is either {self.time_between_adc_capture} seconds")
-        number_adc_captures_to_plot = 4565 #150
-        
-        self.hdf5 = h5py.File(self.file,"r")
-        timestamp = np.hstack(self.hdf5['timestamp'][:])
-        ctime = np.hstack(timestamp['ctime'])
-        fpga_counts = np.hstack(timestamp['fpga_count'])
-        
-        weeks = fpga_counts*2.56e-6/60/60/24/7
-        timeaxis = weeks
-        time_axis = "Weeks"
-        if weeks.max() < 5:
-            days = fpga_counts*2.56e-6/60/60/24
-            timeaxis = days
-            time_axis = "days"
-            if days.max() < 5:
-                hours = fpga_counts*2.56e-6/60
-                timeaxis = hours
-                time_axis = "minutes"
-                #if hours.max() < 2: 
-                    #seconds = fpga_counts*2.56e-6
-                    #timeaxis = seconds
-                    #time_axis = "seconds"
-        
-        print("fpga_counts len: "+str(len(fpga_counts)))
-        print(fpga_counts)
-        print("len: "+str(len(self.fpga_counts_between_raw_adc_capture[:number_adc_captures_to_plot]*2.56e-6)))
-        #plt.scatter(np.arange(number_adc_captures_to_plot)+1,self.fpga_counts_between_raw_adc_capture[:number_adc_captures_to_plot]*2.56e-6)
-        plt.scatter(timeaxis[:number_adc_captures_to_plot],self.fpga_counts_between_raw_adc_capture[:number_adc_captures_to_plot]*2.56e-6)
-        plt.ylabel("time since last capture (s)")
-        plt.xlabel(time_axis)#rawadc capture number (first capture is #0)
-        plt.title("Time since last adc capture using fpga_counts")
-        #plt.savefig("time since last adc capture 400 points.pdf", format="pdf")
-        
-        plt.figure(figsize=(15,3))
-        #print(f"Time between raw_adc captures is either {self.time_between_adc_capture} seconds")
-        number_adc_captures_to_plot = 4565#65535#150 
-        
-        self.hdf5 = h5py.File(self.file,"r")
-        timestamp = np.hstack(self.hdf5['timestamp'][:])
-        ctime = np.hstack(timestamp['ctime'])
-        fpga_counts = np.hstack(timestamp['fpga_count'])
-        
-        weeks = (ctime-1.682107243455656e9)/60/60/24/7#*2.56e-6  for 6/22/23-6/26 use 1.6865957554055302e9
-        timeaxis = weeks
-        time_axis = "Weeks"
-        if weeks.max() < 5:
-            days = (ctime-1.682107243455656e9)/60/60/24#*2.56e-6
-            timeaxis = days
-            time_axis = "days"
-            if days.max() < 5:
-                hours = (ctime-1.682107243455656e9)/60/60#*2.56e-6
-                timeaxis = hours
-                time_axis = "Hours"
-                #if hours.max() < 2: 
-                 #   seconds = (ctime-1.6865957554055302e9)#*2.56e-6
-                  #  timeaxis = seconds
-                   # time_axis = "seconds"
-        
-        print("fpga_counts len: "+str(len(fpga_counts)))
-        print(fpga_counts)
-        print("len: "+str(len(self.fpga_counts_between_raw_adc_capture[:number_adc_captures_to_plot]*2.56e-6)))
-        #plt.scatter(np.arange(number_adc_captures_to_plot)+1,self.fpga_counts_between_raw_adc_capture[:number_adc_captures_to_plot]*2.56e-6)
-        plt.scatter(timeaxis[:number_adc_captures_to_plot],self.fpga_counts_between_raw_adc_capture[:number_adc_captures_to_plot]*2.56e-6)
-        plt.ylabel("time since last capture (s)")
-        plt.xlabel(time_axis)#rawadc capture number (first capture is #0)
-        plt.title("Time since last adc capture using ctime")
-        #plt.savefig("time since last adc capture 400 points.pdf", format="pdf")
-        
             
 class analyse_maser: 
+    '''
+    
+    
+    
+    '''
     def __init__(self, raw_acq_folder, maser_input, num_files = None):
         '''
         
@@ -725,7 +630,7 @@ class analyse_maser:
         self.angles = np.concatenate(angles, axis = 0)
         self.delays = np.concatenate(delays, axis = 0)
         self.angles = np.unwrap(self.angles)
-        self.taus = self.angles/2/np.pi/10e6
+        self.taus = self.angles/2/np.pi/10e6/1e-9
        
       
     
@@ -748,13 +653,10 @@ class analyse_maser:
                 time_axis = "Hours"
                 if hours.max() < 2: 
                     seconds = self.fpgatime*2.56e-6
-                    timeaxis = seconds
+                    timesaxis = seconds
                     time_axis = "seconds"
         plt.figure(figsize=(13,4))
-        delays = (self.taus/1e-9)
-        detrended = detrend(delays, type='linear')
-        #detrended = pd.Series(detrended, index=data.index)
-        plt.scatter(timesaxis,(detrended), s= 0.1, c = 'k', marker = '.')
+        plt.scatter(timesaxis,(self.taus), s= 0.1, c = 'k', marker = '.')  #come back to for 1e-9
         plt.xlabel(time_axis)
         plt.ylabel(r" $\Delta(\tau)$ (ns)")
         #plt.savefig("figure/gpsvmaser.pdf",dpi = 300, format = "pdf", bbox_inches='tight')
@@ -766,12 +668,15 @@ class analyse_maser:
         
         
         '''
-        taus_from_fpga_counts = self.fpgatime*2.56e-6
-        (taus, adevs, errors, ns) = allan.oadev(self.delays, taus = taus_from_fpga_counts)
+        taus_from_fpga_counts = self.fpgatime*2.56e-6 #time of every fpga caputure in seconds
+        (taus, adevs, errors, ns) = allan.oadev(self.taus, taus = taus_from_fpga_counts)
         self.adevs = adevs
         self.adev_taus = taus
+        adev_exp = [(1/x)*(2*1e-10)*((3/2)**(1/2)) for x in taus]
         plt.figure(figsize=(6.5,5))
         plt.loglog(taus,adevs, c = 'k', lw = 1)
+        plt.loglog(taus, adev_exp, marker = ',', c = 'green')
+        plt.loglog()
         plt.ylabel("Allan Deviation")
         plt.xlabel("Time (s)")
         plt.grid()
@@ -800,3 +705,4 @@ def get_second_newest_file(folder_path):
     files.remove(newest_file)
     newest_file = max(files, key=os.path.getctime)
     return newest_file
+
